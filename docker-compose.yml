@@ -30,8 +30,11 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
+      POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=md5"
     ports:
       - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     networks:
       - bridge-net
 
@@ -41,22 +44,29 @@ services:
     depends_on:
       - postgres
     env_file:
-      - .env  # If you have extra environment variables
+      - .env
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      AIRFLOW__WEBSERVER__SECRET_KEY: supersecret
-      AIRFLOW__CORE__FERNET_KEY: supersecretfernetkey123
+      AIRFLOW__WEBSERVER__SECRET_KEY: 8Gn8wxmbpX6pUhzUl5xQDO2aT37TewiX4i29lPJqDbI
+      AIRFLOW__CORE__FERNET_KEY: p3QhCbCljQLsYuSPHSFH9VfHyA4V21Noaq0-U27g5Y8=
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     volumes:
       - ./airflow/dags:/opt/airflow/dags
     ports:
       - "8080:8080"
+#    command: >
+#      bash -c "
+#      airflow db init &&
+#      airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email admin@example.com &&
+#      airflow webserver -p 8080 &
+#      airflow scheduler
+#      "
     command: >
       bash -c "
-      airflow db init &&
-      airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email admin@example.com &&
+      airflow db init || airflow db upgrade &&
+      airflow users create --username airflow --password airflow --firstname Air --lastname Flow  --role Admin --email admin@example.com &&
       airflow webserver -p 8080 &
       airflow scheduler
       "
@@ -66,3 +76,6 @@ services:
 networks:
   bridge-net:
     driver: bridge
+
+volumes:
+  pgdata:
