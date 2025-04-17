@@ -62,3 +62,17 @@ CREATE TABLE IF NOT EXISTS gold_segment_metrics (
   segment_contribution DECIMAL(10,4),
   inserted_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
 );
+
+
+CREATE TABLE IF NOT EXISTS gold_segment_metrics_scd2 (
+    id SERIAL PRIMARY KEY,
+    segment INT NOT NULL,
+    avg_clv DECIMAL(10, 2),
+    churn_rate DECIMAL(5, 4),
+    aov DECIMAL(10, 2),
+    segment_contribution DECIMAL(10, 4),
+    scd_start_date TIMESTAMP,
+    scd_end_date TIMESTAMP,
+    scd_is_current BOOLEAN DEFAULT TRUE
+);
+
