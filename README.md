@@ -4,57 +4,102 @@
     <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
 </a>
 
-3.12
+# Bridge-Cart Customer Segmentation
+
+## Overview
+
+This project aims to build a configurable ETL (or ELT) pipeline to process and segment customer data for an e-commerce platform (BridgeCart). This pipeline covers:
+
+1. **Data Generation** (using Faker + Kafka).
+2. **Data Ingestion** (Kafka => landing in Raw Layer).
+3. **Data Cleaning/Transformation** (Silver Layer).
+4. **Feature Engineering** (CLV, standardized features).
+5. **Segmentation** (using K-Means).
+6. **Loading** results into a reporting table (Gold Layer).
+7. **KPIs** (4 selected):
+   - **Customer Lifetime Value Growth by Segment**
+   - **Customer Churn Rate by Segment**
+   - **Average Order Value (AOV) by Segment**
+   - **Segment Contribution to Total Sales**
+
+We demonstrate an example medallion architecture (Raw, Silver, Gold) plus an analytical step with scikit-learn. We also show how to incrementally ingest data from Kafka, so you can run the pipeline multiple times and only process newly arrived records.
+
+## Architecture Diagram
+
+```txt
+               +----------+
+               |  Faker   |
+               |  (Data)  |
+               +----+-----+
+                    | (gen 'n' records)
+                    v
++-------------------+-----------------+
+|       Kafka Topic (customers)       |  <-- Task 1: Produce data
++-------------------+-----------------+
+                    |
+                    v
+       +------------------------+
+       |  Airflow DAG          |
+       |  Task 2: Consume      |
+       |  => Raw Layer         |
+       +------------------------+
+                    |
+                    v
+       +------------------------+
+       |  Task 3: Transform    |
+       |  => Silver Layer      |
+       +------------------------+
+                    |
+                    v
+       +------------------------+
+       |  Task 4: Segmentation |
+       |  => Gold Layer        |
+       +------------------------+
+                    |
+                    v
+       +------------------------+
+       | Reporting/Analysis    |
+       +------------------------+
+```
 
 ## Project Organization
 
 ```
-├── LICENSE            <- Open-source license if one is chosen
-├── Makefile           <- Makefile with convenience commands like `make data` or `make train`
-├── README.md          <- The top-level README for developers using this project.
+bridge-cart/
+├── LICENSE
+├── Makefile
+├── README.md
+├── docker-compose.yml     <- to use Docker for Kafka, Airflow, Postgres, etc.
 ├── data
-│   ├── external       <- Data from third party sources.
-│   ├── interim        <- Intermediate data that has been transformed.
-│   ├── processed      <- The final, canonical data sets for modeling.
-│   └── raw            <- The original, immutable data dump.
-│
-├── docs               <- A default mkdocs project; see www.mkdocs.org for details
-│
-├── models             <- Trained and serialized models, model predictions, or model summaries
-│
-├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-│                         the creator's initials, and a short `-` delimited description, e.g.
-│                         `1.0-jqp-initial-data-exploration`.
-│
-├── pyproject.toml     <- Project configuration file with package metadata for 
-│                         customer_segmentation and configuration for tools like black
-│
-├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-│
-├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-│   └── figures        <- Generated graphics and figures to be used in reporting
-│
-├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-│                         generated with `pip freeze > requirements.txt`
-│
-├── setup.cfg          <- Configuration file for flake8
-│
-└── customer_segmentation   <- Source code for use in this project.
-    │
-    ├── __init__.py             <- Makes customer_segmentation a Python module
-    │
-    ├── config.py               <- Store useful variables and configuration
-    │
-    ├── dataset.py              <- Scripts to download or generate data
-    │
-    ├── features.py             <- Code to create features for modeling
-    │
-    ├── modeling                
-    │   ├── __init__.py 
-    │   ├── predict.py          <- Code to run model inference with trained models          
-    │   └── train.py            <- Code to train models
-    │
-    └── plots.py                <- Code to create visualizations
+│   ├── external
+│   ├── interim
+│   ├── processed
+│   └── raw
+├── docs
+├── models
+├── notebooks
+│   └── 1.0-jqp-initial-data-exploration.ipynb
+├── pyproject.toml
+├── references
+├── reports
+│   └── figures
+├── requirements.txt
+├── setup.cfg
+├── airflow
+│   ├── dags
+│   │   └── customer_segmentation_dag.py
+│   └── Dockerfile          <- for containerizing Airflow
+└── customer_segmentation
+    ├── __init__.py
+    ├── config.py
+    ├── dataset.py
+    ├── features.py
+    ├── modeling
+    │   ├── __init__.py
+    │   ├── predict.py
+    │   └── train.py
+    └── plots.py
+
 ```
 
 --------
