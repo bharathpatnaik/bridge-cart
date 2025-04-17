@@ -19,7 +19,8 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     networks:
       - bridge-net
@@ -39,7 +40,10 @@ services:
       - bridge-net
 
   airflow:
-    image: apache/airflow:2.5.1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: custom-airflow:2.5.1
     container_name: airflow
     depends_on:
       - postgres
@@ -47,26 +51,17 @@ services:
       - .env
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      AIRFLOW__WEBSERVER__SECRET_KEY: 8Gn8wxmbpX6pUhzUl5xQDO2aT37TewiX4i29lPJqDbI
-      AIRFLOW__CORE__FERNET_KEY: p3QhCbCljQLsYuSPHSFH9VfHyA4V21Noaq0-U27g5Y8=
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
     volumes:
       - ./airflow/dags:/opt/airflow/dags
     ports:
       - "8080:8080"
-#    command: >
-#      bash -c "
-#      airflow db init &&
-#      airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email admin@example.com &&
-#      airflow webserver -p 8080 &
-#      airflow scheduler
-#      "
     command: >
       bash -c "
       airflow db init || airflow db upgrade &&
-      airflow users create --username airflow --password airflow --firstname Air --lastname Flow  --role Admin --email admin@example.com &&
+      airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email admin@example.com || true &&
       airflow webserver -p 8080 &
       airflow scheduler
       "

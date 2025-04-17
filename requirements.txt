@@ -1,9 +1,36 @@
-loguru
+# requirements.txt
+
+# Core Airflow
+apache-airflow==2.5.1
+
+# Environment
+python-dotenv==0.21.1
+
+# Logging & CLI
+loguru==0.6.0
+typer==0.7.0
+tqdm==4.65.0
+
+# Data generation & streaming
+faker==15.3.4
+kafka-python==2.0.2
+
+# Data analysis & ML
+pandas==1.3.5
+numpy==1.21.6
+scikit-learn==1.0.2
+matplotlib==3.5.3
+seaborn==0.12.2
+pyarrow==11.0.0
+
+# Databases
+sqlalchemy==1.4.54
+psycopg2-binary==2.9.6
+
+# Documentation & testing
 mkdocs
-pip
 pytest
-python-dotenv
 ruff
-tqdm
-typer
--e .
+
+# Tooling
+pip
