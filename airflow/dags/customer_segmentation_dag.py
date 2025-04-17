@@ -14,9 +14,9 @@ import os
 ##############################
 # Environment / Config
 ##############################
-N_RECORDS = int(os.getenv("FAKER_RECORDS", "1000"))  # or set as an Airflow Variable
+N_RECORDS = int(os.getenv("FAKER_RECORDS", "1000"))
 KAFKA_TOPIC = "bridgecart_customers"
-BOOTSTRAP_SERVERS = "kafka:9092"  # or localhost:9092 if not in container
+BOOTSTRAP_SERVERS = "kafka:9092"
 
 default_args = {
     "owner": "airflow",
@@ -91,8 +91,9 @@ def consume_data_from_kafka(**context):
         KAFKA_TOPIC,
         bootstrap_servers=BOOTSTRAP_SERVERS,
         auto_offset_reset="earliest",
-        enable_auto_commit=False,  # For manual offset mgmt if needed
+        enable_auto_commit=False,
         group_id="bridgecart_consumer_group",
+        consumer_timeout_ms=5000,
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
     )
 
@@ -100,10 +101,6 @@ def consume_data_from_kafka(**context):
     for message in consumer:
         data = message.value
         records.append(data)
-        # Optionally break after reading some number of messages,
-        # or run until no more messages for a given time
-        if len(records) >= N_RECORDS:  # read same number we produced for demonstration
-            break
 
     df = pd.DataFrame(records)
     raw_dir = os.path.join(os.getcwd(), "data", "raw")
@@ -184,7 +181,7 @@ def segment_and_load(**context):
     # K-means segmentation on [age, income, CLV]
     # Prepare data
     seg_data = df[["age", "income", "CLV"]].dropna()
-    kmeans = KMeans(n_clusters=4, random_state=42, n_init="auto")
+    kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
     kmeans.fit(seg_data)
     df["segment"] = kmeans.predict(df[["age", "income", "CLV"]].fillna(0))
 
