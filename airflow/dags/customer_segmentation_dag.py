@@ -17,7 +17,7 @@ from customer_segmentation.data_generation import generate_kafka_data
 ##############################
 # Environment / Config
 ##############################
-N_RECORDS = int(os.getenv("FAKER_RECORDS", "1000"))
+N_RECORDS = int(Variable.get("FAKER_RECORDS", default_var="1000"))
 KAFKA_TOPIC = "bridgecart_customer_pipeline"
 BOOTSTRAP_SERVERS = "kafka:9092"
 
@@ -125,27 +125,29 @@ def consume_data_from_kafka(**context):
 ##############################
 def transform_and_clean(**context):
     """
-    Reads only new raw data from DB => cleans => writes incrementally to 'silver' table in DB.
-    We use an Airflow Variable 'last_raw_ts' to store the max inserted_at we processed last time.
+    Incrementally read new rows from raw_customers (including new columns),
+    clean them, then append them into silver_customers.
     """
     import pandas as pd
     from pytz import timezone
     from datetime import datetime
     from sqlalchemy import text
+    from airflow.models import Variable
+    import os
 
     engine = get_db_engine()
 
-    # Get last processed raw timestamp from Airflow Variables (default to '1970-01-01')
+    # Last processed timestamp
     last_raw_ts = Variable.get("last_raw_ts", default_var="1970-01-01 00:00:00")
 
-    # Query only new rows in raw_customers where inserted_at > last_raw_ts
-    # (Make sure inserted_at is in correct format, e.g. TIMESTAMP)
-    query = text(f"""
+    query = text("""
         SELECT customer_id, name, age, income, gender, mobile,
-               purchase_date, purchase_amount, inserted_at
+               purchase_date, purchase_amount, inserted_at,
+               coupon_used, discount_amount, payment_method, product_category
         FROM raw_customers
         WHERE inserted_at > :last_ts
     """)
+
     df = pd.read_sql(query, engine, params={"last_ts": last_raw_ts})
 
     if df.empty:
@@ -156,28 +158,45 @@ def transform_and_clean(**context):
 
     # Basic cleaning
     df.drop_duplicates(subset=["customer_id", "purchase_date"], inplace=True)
+
+    # fill missing ages with median
     df["age"] = df["age"].fillna(df["age"].median())
+
+    # fill missing purchase_amount with 0
     df["purchase_amount"] = df["purchase_amount"].fillna(0)
+
+    # fill missing discount_amount with 0
+    df["discount_amount"] = df["discount_amount"].fillna(0)
+
+    # standardize coupon_used => booleans if needed
+    df["coupon_used"] = df["coupon_used"].fillna(False)
+
+    # convert purchase_date
     df["purchase_date"] = pd.to_datetime(df["purchase_date"], errors="coerce")
-    # Map M/F to 0/1
+
+    # convert gender from 'M'/'F' => 0/1
     df["gender"] = df["gender"].replace({"M": 0, "F": 1})
 
+    # Optional: standardize or clean payment_method, product_category
+    # e.g., strip whitespace, set to lower case
+    df["payment_method"] = df["payment_method"].str.strip().str.title()  # e.g. "Credit Card"
+    df["product_category"] = df["product_category"].str.strip().str.title()
+
     # Save local CSV if desired
-    import os
     silver_dir = os.path.join(os.getcwd(), "data", "interim")
     os.makedirs(silver_dir, exist_ok=True)
     silver_file = os.path.join(silver_dir, "customers_silver.csv")
     df.to_csv(silver_file, index=False)
     print(f"Transformed/cleaned data to {silver_file}")
 
-    # Insert into silver_customers table with updated inserted_at
+    # Insert into silver_customers
     ist = timezone("Asia/Kolkata")
     now_ist = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
     df["inserted_at"] = now_ist
-    df.to_sql("silver_customers", engine, if_exists="append", index=False)
-    print(f"Inserted {len(df)} new rows into silver_customers table.")
+    df.to_sql("silver_customers", engine, if_exists="append", index=False, schema="bridgecart_customer_data")
+    print(f"Inserted {len(df)} rows into silver_customers table.")
 
-    # Update the Airflow Variable with the new max inserted_at from raw
+    # Update the Airflow Variable
     new_max_ts = df["inserted_at"].max()
     Variable.set("last_raw_ts", new_max_ts)
     print(f"Set last_raw_ts Airflow Variable to {new_max_ts}")

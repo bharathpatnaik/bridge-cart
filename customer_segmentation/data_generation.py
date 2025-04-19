@@ -2,9 +2,6 @@ import random
 import json
 from faker import Faker
 from kafka import KafkaProducer
-from pytz import timezone
-from datetime import datetime
-
 
 def generate_kafka_data(topic: str, bootstrap_servers: str, n_records: int) -> None:
     """
