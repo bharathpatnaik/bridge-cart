@@ -12,7 +12,6 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 
-# Import the relevant tasks from your modular Python files
 from customer_segmentation.data_generation import generate_kafka_data
 from customer_segmentation.ingestion import consume_and_store
 from customer_segmentation.transformation import transform_and_clean

@@ -9,7 +9,7 @@ from airflow.models import Variable
 from loguru import logger
 
 # If you have a config.py with DB_SCHEMA, you can import that too:
-from customer_segmentation.config import DB_SCHEMA  # if you like
+from customer_segmentation.config import DB_SCHEMA
 
 def get_db_engine():
     """

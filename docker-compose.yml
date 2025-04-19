@@ -58,6 +58,7 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
+      - ./customer_segmentation:/opt/airflow/dags/customer_segmentation
     ports:
       - "8080:8080"
     command: >
@@ -67,6 +68,24 @@ services:
       airflow webserver -p 8080 &
       airflow scheduler
       "
+    networks:
+      - bridge-net
+
+  reporting:
+    build:
+      context: ./reports
+      dockerfile: Dockerfile
+    container_name: reports
+    depends_on:
+      - postgres
+    ports:
+      - "5010:5010"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: airflow
+      DB_USER: airflow
+      DB_PASS: airflow
     networks:
       - bridge-net
 

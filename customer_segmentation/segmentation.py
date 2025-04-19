@@ -10,14 +10,9 @@ from customer_segmentation.ingestion import get_db_engine
 from customer_segmentation.config import DB_SCHEMA
 
 def segment_and_load():
-    """
-    Reads new silver data => calculates CLV, K-means => writes incremental
-    data into gold_customers_segments. Then updates gold_segment_metrics_scd2 (SCD2).
-    """
     engine = get_db_engine()
 
     last_silver_ts = Variable.get("last_silver_ts", default_var="1970-01-01 00:00:00")
-
     query = text("""
         SELECT
             customer_id, name, age, income, gender, mobile,
@@ -33,17 +28,14 @@ def segment_and_load():
 
     logger.info(f"Fetched {len(df)} new silver records (inserted_at > {last_silver_ts}).")
 
-    # Full silver
     full_silver_df = pd.read_sql("SELECT * FROM bridgecart_customer_data.silver_customers", engine)
     clv_df = full_silver_df.groupby("customer_id")["purchase_amount"].sum().reset_index(name="clv")
-
     df = df.merge(clv_df, on="customer_id", how="left")
 
     df["today"] = pd.Timestamp.now()
     df["days_since_purchase"] = (df["today"] - df["purchase_date"]).dt.days
     df["churn_flag"] = df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
 
-    # K-means
     clv_for_seg = full_silver_df.groupby("customer_id").agg({
         "age": "last",
         "income": "last",
@@ -56,11 +48,15 @@ def segment_and_load():
     kmeans.fit(seg_data)
 
     df = df.merge(clv_for_seg, on=["customer_id", "age", "income"], how="left", suffixes=("", "_seg"))
-    df["segment"] = kmeans.predict(df[["age", "income", "clv_seg"]].fillna(0))
+    df.drop(columns=["clv"], errors="ignore", inplace=True)
+    df.rename(columns={"clv_seg": "clv"}, inplace=True)
 
-    # Rebuild full with assigned clusters
-    full_silver_df = full_silver_df.merge(clv_df, on="customer_id", how="left")
-    full_silver_df = full_silver_df.merge(clv_for_seg[["customer_id", "clv"]], on="customer_id", how="left")
+    df["segment"] = kmeans.predict(df[["age", "income", "clv"]].fillna(0))
+
+    full_silver_df = full_silver_df.merge(clv_for_seg, on=["customer_id"], how="left", suffixes=("", "_seg"))
+    full_silver_df.rename(columns={"clv_seg": "clv"}, inplace=True)
+    full_silver_df["days_since_purchase"] = (pd.Timestamp.now() - full_silver_df["purchase_date"]).dt.days
+    full_silver_df["churn_flag"] = full_silver_df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
 
     def assign_segment(row):
         if pd.isnull(row["age"]) or pd.isnull(row["income"]) or pd.isnull(row["clv"]):
@@ -68,10 +64,7 @@ def segment_and_load():
         return kmeans.predict([[row["age"], row["income"], row["clv"]]])[0]
 
     full_silver_df["segment"] = full_silver_df.apply(assign_segment, axis=1)
-    full_silver_df["days_since_purchase"] = (pd.Timestamp.now() - full_silver_df["purchase_date"]).dt.days
-    full_silver_df["churn_flag"] = full_silver_df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
 
-    # Compute segment metrics
     seg_metrics = []
     for seg_id in sorted(full_silver_df["segment"].dropna().unique()):
         seg_subset = full_silver_df[full_silver_df["segment"] == seg_id]
@@ -90,7 +83,6 @@ def segment_and_load():
         })
     metrics_df = pd.DataFrame(seg_metrics)
 
-    # Write incremental rows => gold_customers_segments
     from pytz import timezone
     ist = timezone("Asia/Kolkata")
     now_ist = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
@@ -113,7 +105,6 @@ def segment_and_load():
     )
     logger.info(f"Inserted {len(df_final)} incremental rows into {DB_SCHEMA}.gold_customers_segments table.")
 
-    # SCD2 logic
     for row in metrics_df.to_dict(orient="records"):
         seg = row["segment"]
         avg_clv = row["avg_clv"]
