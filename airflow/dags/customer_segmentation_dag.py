@@ -7,7 +7,6 @@ Airflow DAG to:
 """
 
 from datetime import datetime, timedelta
-import os
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
@@ -32,6 +31,7 @@ default_args = {
     "retry_delay": timedelta(minutes=1),
 }
 
+
 ##############################
 # 1. Produce Data to Kafka
 ##############################
@@ -54,16 +54,16 @@ def consume_raw_data(**context):
         timeout_ms=5000
     )
 
+
 ##############################
 # Build the DAG
 ##############################
 with DAG(
-    "customer_segmentation_dag",
-    default_args=default_args,
-    schedule_interval=None,
-    catchup=False,
+        "customer_segmentation_dag",
+        default_args=default_args,
+        schedule_interval=None,
+        catchup=False,
 ) as dag:
-
     produce_task = PythonOperator(
         task_id="produce_data_to_kafka",
         python_callable=produce_data_to_kafka,

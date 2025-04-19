@@ -6,8 +6,10 @@ from airflow.models import Variable
 from sklearn.cluster import KMeans
 from loguru import logger
 
+from customer_segmentation.modeling.predict import predict_segments, predict_rowwise
 from customer_segmentation.ingestion import get_db_engine
 from customer_segmentation.config import DB_SCHEMA
+
 
 def segment_and_load():
     engine = get_db_engine()
@@ -28,43 +30,77 @@ def segment_and_load():
 
     logger.info(f"Fetched {len(df)} new silver records (inserted_at > {last_silver_ts}).")
 
+    # ------------------------------------------------
+    # 1) Prepare / Train KMeans or load an existing model
+    # ------------------------------------------------
+    # (In production, you'd typically train in 'train.py', then load a saved model.
+    #  For demonstration, we continue training here.)
     full_silver_df = pd.read_sql("SELECT * FROM bridgecart_customer_data.silver_customers", engine)
+
+    # Example CLV calc
     clv_df = full_silver_df.groupby("customer_id")["purchase_amount"].sum().reset_index(name="clv")
     df = df.merge(clv_df, on="customer_id", how="left")
 
+    # Simple churn logic
     df["today"] = pd.Timestamp.now()
     df["days_since_purchase"] = (df["today"] - df["purchase_date"]).dt.days
     df["churn_flag"] = df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
 
-    clv_for_seg = full_silver_df.groupby("customer_id").agg({
-        "age": "last",
-        "income": "last",
-        "purchase_amount": "sum"
-    }).reset_index()
-    clv_for_seg.rename(columns={"purchase_amount": "clv"}, inplace=True)
+    # Prepare data for training
+    clv_for_seg = (
+        full_silver_df
+            .groupby("customer_id")
+            .agg({
+                "age": "last",
+                "income": "last",
+                "purchase_amount": "sum"  # total as "clv"
+            })
+            .reset_index()
+            .rename(columns={"purchase_amount": "clv"})
+    )
+
     seg_data = clv_for_seg[["age", "income", "clv"]].dropna()
 
+    # Train the model (or load a pickled model)
     kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
     kmeans.fit(seg_data)
 
+    # ------------------------------------------------
+    # 2) Use new "predict_segments" to get cluster
+    # ------------------------------------------------
+    # Merge the incremental df with clv_for_seg so we have the features
     df = df.merge(clv_for_seg, on=["customer_id", "age", "income"], how="left", suffixes=("", "_seg"))
+    # Drop old clv, rename the new one
     df.drop(columns=["clv"], errors="ignore", inplace=True)
     df.rename(columns={"clv_seg": "clv"}, inplace=True)
 
-    df["segment"] = kmeans.predict(df[["age", "income", "clv"]].fillna(0))
+    # >>>>> This line uses our new predict function <<<<<
+    df["segment"] = predict_segments(kmeans, df)
 
-    full_silver_df = full_silver_df.merge(clv_for_seg, on=["customer_id"], how="left", suffixes=("", "_seg"))
+    # ------------------------------------------------
+    # 3) We do the same for the entire silver dataset
+    #    (so we can compute final metrics for all data)
+    # ------------------------------------------------
+    full_silver_df = full_silver_df.merge(clv_for_seg, on="customer_id", how="left", suffixes=("", "_seg"))
     full_silver_df.rename(columns={"clv_seg": "clv"}, inplace=True)
     full_silver_df["days_since_purchase"] = (pd.Timestamp.now() - full_silver_df["purchase_date"]).dt.days
     full_silver_df["churn_flag"] = full_silver_df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
 
-    def assign_segment(row):
-        if pd.isnull(row["age"]) or pd.isnull(row["income"]) or pd.isnull(row["clv"]):
-            return None
-        return kmeans.predict([[row["age"], row["income"], row["clv"]]])[0]
+    # We can use row-by-row assignment or full predict:
+    # row-by-row example (slower):
+    # def assign_segment(row):
+    #     if pd.isnull(row["age"]) or pd.isnull(row["income"]) or pd.isnull(row["clv"]):
+    #         return None
+    #     return kmeans.predict([[row["age"], row["income"], row["clv"]]])[0]
+    #
+    # full_silver_df["segment"] = full_silver_df.apply(assign_segment, axis=1)
 
-    full_silver_df["segment"] = full_silver_df.apply(assign_segment, axis=1)
+    # Alternatively, do a vectorized approach:
+    full_silver_df["segment"] = predict_segments(kmeans, full_silver_df)
 
+    # ------------------------------------------------
+    # 4) Calculate segment metrics, do SCD2, etc.
+    # ------------------------------------------------
     seg_metrics = []
     for seg_id in sorted(full_silver_df["segment"].dropna().unique()):
         seg_subset = full_silver_df[full_silver_df["segment"] == seg_id]
@@ -83,6 +119,7 @@ def segment_and_load():
         })
     metrics_df = pd.DataFrame(seg_metrics)
 
+    # Insert new data
     from pytz import timezone
     ist = timezone("Asia/Kolkata")
     now_ist = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
@@ -95,16 +132,11 @@ def segment_and_load():
             "churn_flag", "segment", "inserted_at"
         ]
     ]
-
-    df_final.to_sql(
-        "gold_customers_segments",
-        engine,
-        if_exists="append",
-        index=False,
-        schema=DB_SCHEMA
-    )
+    df_final.to_sql("gold_customers_segments", engine, if_exists="append", index=False, schema=DB_SCHEMA)
     logger.info(f"Inserted {len(df_final)} incremental rows into {DB_SCHEMA}.gold_customers_segments table.")
 
+    # SCD2 upsert for gold_segment_metrics_scd2
+    # (unchanged code that closes out old records & inserts new ones)
     for row in metrics_df.to_dict(orient="records"):
         seg = row["segment"]
         avg_clv = row["avg_clv"]

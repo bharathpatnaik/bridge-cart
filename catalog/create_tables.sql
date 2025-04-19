@@ -73,14 +73,14 @@ CREATE TABLE IF NOT EXISTS bridgecart_customer_data.gold_customers_segments (
 -- 4. GOLD Layer: Segment Metrics
 -- (aggregated metrics per segment)
 -- ===========================
-CREATE TABLE IF NOT EXISTS bridgecart_customer_data.gold_segment_metrics (
-  segment INT PRIMARY KEY,
-  avg_clv DECIMAL(10,2),
-  churn_rate DECIMAL(5,4),
-  aov DECIMAL(10,2),
-  segment_contribution DECIMAL(10,4),
-  inserted_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
-);
+-- CREATE TABLE IF NOT EXISTS bridgecart_customer_data.gold_segment_metrics (
+--   segment INT PRIMARY KEY,
+--   avg_clv DECIMAL(10,2),
+--   churn_rate DECIMAL(5,4),
+--   aov DECIMAL(10,2),
+--   segment_contribution DECIMAL(10,4),
+--   inserted_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
+-- );
 
 -- ===========================
 -- 5. GOLD Layer: Segment Metrics (SCD2)
