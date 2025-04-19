@@ -11,6 +11,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 import os
+from customer_segmentation.data_generation import generate_kafka_data
+
 
 ##############################
 # Environment / Config
@@ -50,47 +52,11 @@ def get_db_engine():
 # 1. Produce Data to Kafka
 ##############################
 def produce_data_to_kafka(**context):
-    """
-    Generates N_RECORDS of synthetic data and pushes them to a Kafka topic.
-    """
-    from faker import Faker
-    import json
-    from kafka import KafkaProducer
-    import random
-
-    fake = Faker()
-    producer = KafkaProducer(
+    generate_kafka_data(
+        topic=KAFKA_TOPIC,
         bootstrap_servers=BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        n_records=N_RECORDS
     )
-
-    # produce the data
-    for _ in range(N_RECORDS):
-        customer_id = fake.uuid4()
-        name = fake.name()
-        age = random.randint(18, 75)
-        income = random.randint(20000, 150000)
-        gender = random.choice(["M", "F"])
-        mobile = fake.phone_number()
-        purchase_date = fake.date_time_between(start_date="-30d", end_date="now").isoformat()
-        purchase_amount = round(random.uniform(5.0, 1000.0), 2)
-
-        record = {
-            "customer_id": customer_id,
-            "name": name,
-            "age": age,
-            "income": income,
-            "gender": gender,
-            "mobile": mobile,
-            "purchase_date": purchase_date,
-            "purchase_amount": purchase_amount,
-        }
-
-        producer.send(KAFKA_TOPIC, record)
-
-    producer.flush()
-    producer.close()
-    print(f"Produced {N_RECORDS} records to Kafka topic '{KAFKA_TOPIC}'")
 
 
 ##############################
