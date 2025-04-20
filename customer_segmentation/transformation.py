@@ -9,6 +9,7 @@ from loguru import logger
 from customer_segmentation.ingestion import get_db_engine
 from customer_segmentation.config import DB_SCHEMA
 
+
 def transform_and_clean():
     """
     Incrementally read new rows from raw_customers,

@@ -74,13 +74,11 @@ with DAG(
         python_callable=consume_raw_data,
     )
 
-    # For transform, we call the function in transformation.py
     transform_task = PythonOperator(
         task_id="transform_and_clean",
         python_callable=transform_and_clean,
     )
 
-    # For segment, we call the function in segmentation.py
     segment_task = PythonOperator(
         task_id="segment_and_load",
         python_callable=segment_and_load,

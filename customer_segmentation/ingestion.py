@@ -4,12 +4,12 @@ import pandas as pd
 from kafka import KafkaConsumer
 from pytz import timezone
 from datetime import datetime
-from sqlalchemy import create_engine, text
-from airflow.models import Variable
+from sqlalchemy import create_engine
 from loguru import logger
 
 # If you have a config.py with DB_SCHEMA, you can import that too:
 from customer_segmentation.config import DB_SCHEMA
+
 
 def get_db_engine():
     """
@@ -25,6 +25,7 @@ def get_db_engine():
     conn_str = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     engine = create_engine(conn_str)
     return engine
+
 
 def consume_and_store(topic, bootstrap_servers, group_id="bridgecart_consumer_group", timeout_ms=5000):
     """
@@ -63,7 +64,7 @@ def consume_and_store(topic, bootstrap_servers, group_id="bridgecart_consumer_gr
         con=engine,
         if_exists="append",
         index=False,
-        schema=DB_SCHEMA  # <-- or remove if you're using public schema
+        schema=DB_SCHEMA
     )
     logger.info(f"Inserted {len(df)} records into {DB_SCHEMA}.raw_customers table.")
 

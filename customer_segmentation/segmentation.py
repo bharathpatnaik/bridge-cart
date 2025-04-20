@@ -33,15 +33,15 @@ def segment_and_load():
     # ------------------------------------------------
     # 1) Prepare / Train KMeans or load an existing model
     # ------------------------------------------------
-    # (In production, you'd typically train in 'train.py', then load a saved model.
+    # (In production, we'd typically train in 'train.py', then load a saved model.
     #  For demonstration, we continue training here.)
     full_silver_df = pd.read_sql("SELECT * FROM bridgecart_customer_data.silver_customers", engine)
 
-    # Example CLV calc
+    # Sample CLV calc
     clv_df = full_silver_df.groupby("customer_id")["purchase_amount"].sum().reset_index(name="clv")
     df = df.merge(clv_df, on="customer_id", how="left")
 
-    # Simple churn logic
+    # Simple churn logic (assuming everyone's left today lol)
     df["today"] = pd.Timestamp.now()
     df["days_since_purchase"] = (df["today"] - df["purchase_date"]).dt.days
     df["churn_flag"] = df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
@@ -49,19 +49,20 @@ def segment_and_load():
     # Prepare data for training
     clv_for_seg = (
         full_silver_df
-            .groupby("customer_id")
-            .agg({
-                "age": "last",
-                "income": "last",
-                "purchase_amount": "sum"  # total as "clv"
-            })
-            .reset_index()
-            .rename(columns={"purchase_amount": "clv"})
+        .groupby("customer_id")
+        .agg({
+            "age": "last",
+            "income": "last",
+            "purchase_amount": "sum"  # total as "clv"
+        })
+        .reset_index()
+        .rename(columns={"purchase_amount": "clv"})
     )
 
     seg_data = clv_for_seg[["age", "income", "clv"]].dropna()
 
     # Train the model (or load a pickled model)
+    # Choosing 4 segments for this demonstration
     kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
     kmeans.fit(seg_data)
 
@@ -74,7 +75,6 @@ def segment_and_load():
     df.drop(columns=["clv"], errors="ignore", inplace=True)
     df.rename(columns={"clv_seg": "clv"}, inplace=True)
 
-    # >>>>> This line uses our new predict function <<<<<
     df["segment"] = predict_segments(kmeans, df)
 
     # ------------------------------------------------
@@ -95,7 +95,7 @@ def segment_and_load():
     #
     # full_silver_df["segment"] = full_silver_df.apply(assign_segment, axis=1)
 
-    # Alternatively, do a vectorized approach:
+    # Using a vectorized approach:
     full_silver_df["segment"] = predict_segments(kmeans, full_silver_df)
 
     # ------------------------------------------------
@@ -136,7 +136,7 @@ def segment_and_load():
     logger.info(f"Inserted {len(df_final)} incremental rows into {DB_SCHEMA}.gold_customers_segments table.")
 
     # SCD2 upsert for gold_segment_metrics_scd2
-    # (unchanged code that closes out old records & inserts new ones)
+    # close out old records & insert new ones
     for row in metrics_df.to_dict(orient="records"):
         seg = row["segment"]
         avg_clv = row["avg_clv"]
@@ -180,10 +180,10 @@ def segment_and_load():
                 old_seg_contrib = float(current_rec["segment_contribution"])
 
                 changed = (
-                    abs(old_avg_clv - avg_clv) > 1e-6
-                    or abs(old_churn_rate - churn_rate) > 1e-6
-                    or abs(old_aov - aov) > 1e-6
-                    or abs(old_seg_contrib - segment_contribution) > 1e-6
+                        abs(old_avg_clv - avg_clv) > 1e-6
+                        or abs(old_churn_rate - churn_rate) > 1e-6
+                        or abs(old_aov - aov) > 1e-6
+                        or abs(old_seg_contrib - segment_contribution) > 1e-6
                 )
                 if changed:
                     close_sql = text("""
