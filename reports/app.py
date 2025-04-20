@@ -23,7 +23,7 @@ CONN_STR = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 
 # ────────────────────────────────────────────────────────────
-# HELPER UTILS
+# HELPER UTILS
 # ────────────────────────────────────────────────────────────
 def build_segment_labels(df_current: pd.DataFrame) -> dict:
     """
@@ -41,7 +41,7 @@ def build_segment_labels(df_current: pd.DataFrame) -> dict:
     )
     tiers = ["High‑Value", "Growth", "Regular", "Occasional"]
     label_map = {
-        seg_id: tiers[idx] if idx < len(tiers) else f"Segment {seg_id}"
+        seg_id: tiers[idx] if idx < len(tiers) else f"Segment {seg_id}"
         for idx, seg_id in enumerate(clv_sorted.index)
     }
     return label_map
@@ -220,7 +220,7 @@ def index():
     # ────────────────────────────────────────────────────────
     # 4) Build graphs
     # ────────────────────────────────────────────────────────
-    # → Raw layer: product categories
+    # → Raw layer: product categories
     raw_cat = pd.read_sql(
         text("""
             SELECT product_category, COUNT(*) cnt
@@ -233,22 +233,22 @@ def index():
     )
     fig_raw_cat = px.bar(
         raw_cat, x="product_category", y="cnt",
-        title="Top Product Categories — Raw",
+        title="Top Product Categories — Raw",
         labels={"cnt": "Count"},
     ).update_layout(template="plotly_white", width=450, height=350, showlegend=False)
 
-    # → Raw layer: age distribution
+    # → Raw layer: age distribution
     raw_age = pd.read_sql(
         text("SELECT age FROM bridgecart_customer_data.raw_customers WHERE age IS NOT NULL"),
         engine,
     )
     fig_raw_age = px.histogram(
         raw_age, x="age", nbins=20,
-        title="Age Distribution — Raw",
+        title="Age Distribution — Raw",
         labels={"age": "Age"},
     ).update_layout(template="plotly_white", width=450, height=350)
 
-    # → Silver layer: payment methods
+    # → Silver layer: payment methods
     silver_pay = pd.read_sql(
         text("""
             SELECT payment_method, COUNT(*) cnt
@@ -260,11 +260,11 @@ def index():
     )
     fig_silver_pay = px.pie(
         silver_pay, names="payment_method", values="cnt",
-        title="Payment Method — Silver",
+        title="Payment Method — Silver",
         hole=0.35, color_discrete_sequence=px.colors.qualitative.Set1,
     ).update_layout(template="plotly_white", width=400, height=350)
 
-    # → Silver layer: avg discount by category
+    # → Silver layer: avg discount by category
     silver_disc = pd.read_sql(
         text("""
             SELECT product_category, AVG(discount_amount) avg_disc
@@ -278,11 +278,11 @@ def index():
     )
     fig_silver_disc = px.bar(
         silver_disc, x="product_category", y="avg_disc",
-        title="Avg Discount by Category — Silver",
-        labels={"avg_disc": "Avg $ Discount"},
+        title="Avg Discount by Category — Silver",
+        labels={"avg_disc": "Avg $ Discount"},
     ).update_layout(template="plotly_white", width=400, height=350, showlegend=False)
 
-    # → Gold layer: discount gauge + coupon indicator
+    # → Gold layer: discount gauge + coupon indicator
     gold_stats = pd.read_sql(
         text("""
             SELECT
@@ -302,41 +302,41 @@ def index():
         go.Indicator(
             mode="gauge+number",
             value=avg_discount,
-            title={"text": "Average Discount — Gold"},
+            title={"text": "Average Discount — Gold"},
             gauge={"axis": {"range": [None, max(50, avg_discount * 2)]}},
         )
     ).update_layout(width=300, height=300, template="plotly_white")
 
     fig_coupons = go.Figure(
-        go.Indicator(mode="number", value=coupons_used, title={"text": "Coupons Used — Gold"})
+        go.Indicator(mode="number", value=coupons_used, title={"text": "Coupons Used — Gold"})
     ).update_layout(width=300, height=300, template="plotly_white")
 
-    # → Current CLV bar & revenue share pie
+    # → Current CLV bar & revenue share pie
     label_map = build_segment_labels(df_current)
     df_current["segment_label"] = df_current["segment"].map(label_map)
 
     fig_clv_bar = px.bar(
         df_current, x="segment_label", y="avg_clv", color="segment_label",
-        title="Avg CLV per Cohort — Current",
-        labels={"avg_clv": "Average CLV", "segment_label": "Cohort"},
+        title="Avg CLV per Cohort — Current",
+        labels={"avg_clv": "Average CLV", "segment_label": "Cohort"},
     ).update_layout(template="plotly_white", width=450, height=350, showlegend=False)
 
     fig_contrib = px.pie(
         df_current, names="segment_label", values="segment_contribution",
-        title="Revenue Share — Current",
+        title="Revenue Share — Current",
         hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2,
     ).update_layout(template="plotly_white", width=450, height=350)
 
-    # → Churn over time
+    # → Churn over time
     fig_churn = px.line(
         df_scd2, x="scd_start_date", y="churn_rate",
         color=df_scd2["segment"].map(label_map).fillna(df_scd2["segment"].astype(str)),
         title="Churn Rate Over Time",
-        labels={"scd_start_date": "Start Date", "churn_rate": "Churn Rate"},
+        labels={"scd_start_date": "Start Date", "churn_rate": "Churn Rate"},
     ).update_layout(template="plotly_white", width=900, height=350)
 
     # ────────────────────────────────────────────────────────
-    # 5) HTML TEMPLATE
+    # 5) HTML TEMPLATE
     # ────────────────────────────────────────────────────────
     html = """
     <!doctype html>
@@ -357,16 +357,16 @@ def index():
       </style>
     </head>
     <body>
-      <h1>BridgeCart Analytics Dashboard</h1>
+      <h1>BridgeCart Analytics Dashboard</h1>
 
       <div class="section">
-        <h2>Pipeline Overview</h2>
+        <h2>Pipeline Overview</h2>
         <p class="narrative">{{ pipeline_overview }}</p>
         {{ drift_table|safe }}
       </div>
 
       <div class="section">
-        <h2>Exploratory Data Analysis</h2>
+        <h2>Exploratory Data Analysis</h2>
         <div class="flex">
           <div class="chart-box">{{ fig_raw_cat|safe }}</div>
           <div class="chart-box">{{ fig_raw_age|safe }}</div>
@@ -378,7 +378,7 @@ def index():
       </div>
 
       <div class="section">
-        <h2>Cohort Insights</h2>
+        <h2>Cohort Insights</h2>
         <p class="narrative">{{ segment_story }}</p>
         <div class="flex">
           <div class="chart-box">{{ fig_disc|safe }}</div>
@@ -394,7 +394,7 @@ def index():
       </div>
 
       <div class="section">
-        <h2>Churn Analysis</h2>
+        <h2>Churn Analysis</h2>
         <p class="narrative">{{ churn_story }}</p>
         <div class="chart-box" style="max-width:920px;margin:auto">{{ fig_churn|safe }}</div>
       </div>
@@ -416,9 +416,9 @@ def index():
             columns={
                 "data_layer": "Data Layer",
                 "last_execution": "Last Execution",
-                "records_before_latest": "Records Before Latest",
-                "new_records_latest": "New Records in Latest",
-                "clv_drift": "CLV Drift (Δ)"
+                "records_before_latest": "Records Before Latest",
+                "new_records_latest": "New Records in Latest",
+                "clv_drift": "CLV Drift (Δ)"
             }
         ).to_html(index=False, classes="table"),
         fig_raw_cat=fig_raw_cat.to_html(full_html=False),

@@ -1,75 +1,50 @@
-# bridge-cart
-
-<a target="_blank" href="https://cookiecutter-data-science.drivendata.org/">
-    <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
-</a>
-
 # Bridge-Cart Customer Segmentation
 
-## Overview
+[![CCDS Project template](https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter)](https://cookiecutter-data-science.drivendata.org/)
 
-This project aims to build a configurable ETL (or ELT) pipeline to process and segment customer data for an e-commerce platform (BridgeCart). This pipeline covers:
+Welcome to **Bridge-Cart**, an end-to-end customer segmentation pipeline. This project shows how to generate synthetic data, ingest it into a **Medallion Architecture** (Raw → Silver → Gold), and perform analytics—ultimately segmenting e-commerce customers.
 
-1. **Data Generation** (using Faker + Kafka).
-2. **Data Ingestion** (Kafka => landing in Raw Layer).
-3. **Data Cleaning/Transformation** (Silver Layer).
-4. **Feature Engineering** (CLV, standardized features).
-5. **Segmentation** (using K-Means).
-6. **Loading** results into a reporting table (Gold Layer).
-7. **KPIs** (4 selected):
-   - **Customer Lifetime Value Growth by Segment**
-   - **Customer Churn Rate by Segment**
-   - **Average Order Value (AOV) by Segment**
-   - **Segment Contribution to Total Sales**
+## What Does It Do?
 
-We demonstrate an example medallion architecture (Raw, Silver, Gold) plus an analytical step with scikit-learn. We also show how to incrementally ingest data from Kafka, so you can run the pipeline multiple times and only process newly arrived records.
+1. **Data Generation**: We use [Faker](https://faker.readthedocs.io/) to create realistic customer and purchase data.
+2. **Ingestion**: Data lands in a **Raw** layer (optionally via Kafka).
+3. **Cleaning & Transformation**: In the **Silver** layer, we remove duplicates, fill missing values, and unify data formats.
+4. **Feature Engineering**: Compute features like **CLV** (Customer Lifetime Value).
+5. **Segmentation**: Apply K-Means clustering to group customers by behavior.
+6. **Gold Layer**: Store the final, enriched data for reporting or additional analysis.
+7. **KPIs**: Track churn rate, average order value, segment contribution, and more.
 
-## Architecture Diagram
+## How to Explore
 
-```txt
-               +----------+
-               |  Faker   |
-               |  (Data)  |
-               +----+-----+
-                    | (gen 'n' records)
-                    v
-+-------------------+-----------------+
-|       Kafka Topic (customers)       |  <-- Task 1: Produce data
-+-------------------+-----------------+
-                    |
-                    v
-       +------------------------+
-       |  Airflow DAG          |
-       |  Task 2: Consume      |
-       |  => Raw Layer         |
-       +------------------------+
-                    |
-                    v
-       +------------------------+
-       |  Task 3: Transform    |
-       |  => Silver Layer      |
-       +------------------------+
-                    |
-                    v
-       +------------------------+
-       |  Task 4: Segmentation |
-       |  => Gold Layer        |
-       +------------------------+
-                    |
-                    v
-       +------------------------+
-       | Reporting/Analysis    |
-       +------------------------+
-```
+- **[docs/](./docs)**: Contains several short guides explaining each pipeline stage—from Raw ingestion to reporting.
+- **[airflow/dags/](./airflow/dags)**: The Airflow DAG that orchestrates ingestion, transformation, and load.
+- **[notebooks/](./notebooks)**: Example Jupyter notebook(s) for data exploration.
+- **[customer_segmentation/](./customer_segmentation)**: Core source code for dataset generation, feature engineering, and modeling.
 
-## Project Organization
+## Getting Started
+
+1. **Install Dependencies**: Use `pip install -r requirements.txt`.
+2. **Start Docker Services**: `docker-compose up -d` (brings up Kafka, Airflow, Postgres).
+3. **Run the Pipeline**:
+   - Access Airflow at `http://localhost:8080`
+   - Access reports at `http://localhost:5010`
+   - Access Postgres at `http://localhost:5432`
+
+## Highlights
+
+- **Incremental Ingestion**: The pipeline only processes new data each run, using offsets or timestamps.
+- **SCD2 (Slowly Changing Dimensions)**: We keep historical versions of key metrics in the Gold layer for tracking changes over time.
+- **Flexible**: we can swap out Kafka or Airflow as desired, or deploy to other cloud/data platforms.
+
+## Directory Structure
+
 
 ```
 bridge-cart/
 ├── LICENSE
 ├── Makefile
 ├── README.md
-├── docker-compose.yml     <- to use Docker for Kafka, Airflow, Postgres, etc.
+├── docker-compose.yml
 ├── data
 │   ├── external
 │   ├── interim
@@ -88,7 +63,7 @@ bridge-cart/
 ├── airflow
 │   ├── dags
 │   │   └── customer_segmentation_dag.py
-│   └── Dockerfile          <- for containerizing Airflow
+│   └── Dockerfile
 └── customer_segmentation
     ├── __init__.py
     ├── config.py
@@ -101,6 +76,3 @@ bridge-cart/
     └── plots.py
 
 ```
-
---------
-
