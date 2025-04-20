@@ -14,12 +14,24 @@ from customer_segmentation.config import DB_SCHEMA
 def segment_and_load():
     engine = get_db_engine()
 
+    # 1. Fetch only new (incremental) rows from silver_customers (using last_silver_ts)
     last_silver_ts = Variable.get("last_silver_ts", default_var="1970-01-01 00:00:00")
-    query = text("""
+    query = text(f"""
         SELECT
-            customer_id, name, age, income, gender, mobile,
-            purchase_date, purchase_amount, inserted_at
-        FROM bridgecart_customer_data.silver_customers
+            customer_id,
+            name,
+            age,
+            income,
+            gender,
+            mobile,
+            purchase_date,
+            purchase_amount,
+            coupon_used,
+            discount_amount,
+            payment_method,
+            product_category,
+            inserted_at
+        FROM {DB_SCHEMA}.silver_customers
         WHERE inserted_at > :last_ts
     """)
 
@@ -30,15 +42,18 @@ def segment_and_load():
 
     logger.info(f"Fetched {len(df)} new silver records (inserted_at > {last_silver_ts}).")
 
-    # ------------------------------------------------
-    # 1) Prepare / Train KMeans or load an existing model
-    # ------------------------------------------------
-    # (In production, we'd typically train in 'train.py', then load a saved model.
-    #  For demonstration, we continue training here.)
-    full_silver_df = pd.read_sql("SELECT * FROM bridgecart_customer_data.silver_customers", engine)
+    # 2. Load all silver data for building "full" references (e.g., training KMeans, computing total CLV)
+    full_silver_df = pd.read_sql(f"SELECT * FROM {DB_SCHEMA}.silver_customers", engine)
 
-    # Sample CLV calc
-    clv_df = full_silver_df.groupby("customer_id")["purchase_amount"].sum().reset_index(name="clv")
+    # 3. Compute CLV from the full dataset
+    clv_df = (
+        full_silver_df
+        .groupby("customer_id")["purchase_amount"]
+        .sum()
+        .reset_index(name="clv")
+    )
+
+    # Merge CLV into just the new (incremental) records
     df = df.merge(clv_df, on="customer_id", how="left")
 
     # Simple churn logic (assuming everyone's left today lol)
@@ -46,61 +61,37 @@ def segment_and_load():
     df["days_since_purchase"] = (df["today"] - df["purchase_date"]).dt.days
     df["churn_flag"] = df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
 
-    # Prepare data for training
+    # 4. Train or load a KMeans model on the full dataset's aggregated features
+    #    (For real usage, you would typically load a pre-trained model from file.)
     clv_for_seg = (
         full_silver_df
         .groupby("customer_id")
-        .agg({
-            "age": "last",
-            "income": "last",
-            "purchase_amount": "sum"  # total as "clv"
-        })
+        .agg({"age": "last", "income": "last", "purchase_amount": "sum"})
         .reset_index()
         .rename(columns={"purchase_amount": "clv"})
     )
 
     seg_data = clv_for_seg[["age", "income", "clv"]].dropna()
-
-    # Train the model (or load a pickled model)
-    # Choosing 4 segments for this demonstration
     kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
     kmeans.fit(seg_data)
 
-    # ------------------------------------------------
-    # 2) Use new "predict_segments" to get cluster
-    # ------------------------------------------------
-    # Merge the incremental df with clv_for_seg so we have the features
+    # 5. Merge the incremental DataFrame with the training reference for CLV, then predict segments
+    #    (We match on customer_id, age, income for consistency with how the code was set up)
     df = df.merge(clv_for_seg, on=["customer_id", "age", "income"], how="left", suffixes=("", "_seg"))
-    # Drop old clv, rename the new one
     df.drop(columns=["clv"], errors="ignore", inplace=True)
     df.rename(columns={"clv_seg": "clv"}, inplace=True)
 
     df["segment"] = predict_segments(kmeans, df)
 
-    # ------------------------------------------------
-    # 3) We do the same for the entire silver dataset
-    #    (so we can compute final metrics for all data)
-    # ------------------------------------------------
+    # 6. Also compute metrics on the entire silver dataset (for aggregated KPI reporting)
     full_silver_df = full_silver_df.merge(clv_for_seg, on="customer_id", how="left", suffixes=("", "_seg"))
     full_silver_df.rename(columns={"clv_seg": "clv"}, inplace=True)
+
     full_silver_df["days_since_purchase"] = (pd.Timestamp.now() - full_silver_df["purchase_date"]).dt.days
     full_silver_df["churn_flag"] = full_silver_df["days_since_purchase"].apply(lambda x: 1 if x > 14 else 0)
-
-    # We can use row-by-row assignment or full predict:
-    # row-by-row example (slower):
-    # def assign_segment(row):
-    #     if pd.isnull(row["age"]) or pd.isnull(row["income"]) or pd.isnull(row["clv"]):
-    #         return None
-    #     return kmeans.predict([[row["age"], row["income"], row["clv"]]])[0]
-    #
-    # full_silver_df["segment"] = full_silver_df.apply(assign_segment, axis=1)
-
-    # Using a vectorized approach:
     full_silver_df["segment"] = predict_segments(kmeans, full_silver_df)
 
-    # ------------------------------------------------
-    # 4) Calculate segment metrics, do SCD2, etc.
-    # ------------------------------------------------
+    # 7. Calculate segment metrics for SCD2
     seg_metrics = []
     for seg_id in sorted(full_silver_df["segment"].dropna().unique()):
         seg_subset = full_silver_df[full_silver_df["segment"] == seg_id]
@@ -119,24 +110,42 @@ def segment_and_load():
         })
     metrics_df = pd.DataFrame(seg_metrics)
 
-    # Insert new data
-    from pytz import timezone
+    # 8. Insert new incremental rows into gold_customers_segments
     ist = timezone("Asia/Kolkata")
     now_ist = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
     df["inserted_at"] = now_ist
 
+    # Choose the columns that match gold_customers_segments (including coupon, discount, payment, category)
     df_final = df[
         [
-            "customer_id", "name", "age", "income", "gender",
-            "purchase_date", "purchase_amount", "clv",
-            "churn_flag", "segment", "inserted_at"
+            "customer_id",
+            "name",
+            "age",
+            "income",
+            "gender",
+            "purchase_date",
+            "purchase_amount",
+            "coupon_used",
+            "discount_amount",
+            "payment_method",
+            "product_category",
+            "clv",
+            "churn_flag",
+            "segment",
+            "inserted_at"
         ]
     ]
-    df_final.to_sql("gold_customers_segments", engine, if_exists="append", index=False, schema=DB_SCHEMA)
+
+    df_final.to_sql(
+        "gold_customers_segments",
+        engine,
+        if_exists="append",
+        index=False,
+        schema=DB_SCHEMA
+    )
     logger.info(f"Inserted {len(df_final)} incremental rows into {DB_SCHEMA}.gold_customers_segments table.")
 
-    # SCD2 upsert for gold_segment_metrics_scd2
-    # close out old records & insert new ones
+    # 9. SCD2 Upsert for gold_segment_metrics_scd2
     for row in metrics_df.to_dict(orient="records"):
         seg = row["segment"]
         avg_clv = row["avg_clv"]
@@ -144,9 +153,9 @@ def segment_and_load():
         aov = row["aov"]
         segment_contribution = row["segment_contribution"]
 
-        check_sql = text("""
+        check_sql = text(f"""
             SELECT id, avg_clv, churn_rate, aov, segment_contribution
-            FROM bridgecart_customer_data.gold_segment_metrics_scd2
+            FROM {DB_SCHEMA}.gold_segment_metrics_scd2
             WHERE segment = :seg
               AND scd_is_current = TRUE
             ORDER BY id DESC
@@ -155,8 +164,9 @@ def segment_and_load():
         with engine.begin() as conn:
             current_rec = conn.execute(check_sql, {"seg": seg}).fetchone()
             if not current_rec:
-                insert_sql = text("""
-                    INSERT INTO bridgecart_customer_data.gold_segment_metrics_scd2 (
+                # No active record for this segment => insert a new one
+                insert_sql = text(f"""
+                    INSERT INTO {DB_SCHEMA}.gold_segment_metrics_scd2 (
                         segment, avg_clv, churn_rate, aov, segment_contribution,
                         scd_start_date, scd_end_date, scd_is_current
                     )
@@ -180,21 +190,23 @@ def segment_and_load():
                 old_seg_contrib = float(current_rec["segment_contribution"])
 
                 changed = (
-                        abs(old_avg_clv - avg_clv) > 1e-6
-                        or abs(old_churn_rate - churn_rate) > 1e-6
-                        or abs(old_aov - aov) > 1e-6
-                        or abs(old_seg_contrib - segment_contribution) > 1e-6
+                    abs(old_avg_clv - avg_clv) > 1e-6
+                    or abs(old_churn_rate - churn_rate) > 1e-6
+                    or abs(old_aov - aov) > 1e-6
+                    or abs(old_seg_contrib - segment_contribution) > 1e-6
                 )
                 if changed:
-                    close_sql = text("""
-                        UPDATE bridgecart_customer_data.gold_segment_metrics_scd2
+                    # Close out old record
+                    close_sql = text(f"""
+                        UPDATE {DB_SCHEMA}.gold_segment_metrics_scd2
                         SET scd_end_date = :end_date, scd_is_current = FALSE
                         WHERE id = :rec_id
                     """)
                     conn.execute(close_sql, {"end_date": now_ist, "rec_id": current_rec["id"]})
 
-                    insert_sql = text("""
-                        INSERT INTO bridgecart_customer_data.gold_segment_metrics_scd2 (
+                    # Insert new record as current
+                    insert_sql = text(f"""
+                        INSERT INTO {DB_SCHEMA}.gold_segment_metrics_scd2 (
                             segment, avg_clv, churn_rate, aov, segment_contribution,
                             scd_start_date, scd_end_date, scd_is_current
                         )
@@ -214,6 +226,7 @@ def segment_and_load():
 
     logger.info("SCD2 Upsert completed for gold_segment_metrics_scd2.")
 
+    # 10. Update the Airflow Variable so next run only picks up new data
     new_max_silver_ts = df["inserted_at"].max()
     Variable.set("last_silver_ts", new_max_silver_ts)
     logger.info(f"Set last_silver_ts Airflow Variable to {new_max_silver_ts}")

@@ -327,14 +327,25 @@ def index():
         hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2,
     ).update_layout(template="plotly_white", width=450, height=350)
 
-    # → Churn over time
+    # Make Plotly place x-axis ticks every 12 hours instead of 2 hours:
     fig_churn = px.line(
-        df_scd2, x="scd_start_date", y="churn_rate",
+        df_scd2,
+        x="scd_start_date",
+        y="churn_rate",
         color=df_scd2["segment"].map(label_map).fillna(df_scd2["segment"].astype(str)),
         title="Churn Rate Over Time",
         labels={"scd_start_date": "Start Date", "churn_rate": "Churn Rate"},
-    ).update_layout(template="plotly_white", width=900, height=350)
-
+    )
+    fig_churn.update_layout(
+        template="plotly_white",
+        width=900,
+        height=350,
+    )
+    # dtick is in milliseconds, so 12 hours = 12 * 3600 * 1000 = 43200000
+    fig_churn.update_xaxes(
+        dtick=43200000,  # Force a new major tick every 12 hours
+        tickformat="%b %d, %H:%M"  # Show month/day and hour:minute
+    )
     # ────────────────────────────────────────────────────────
     # 5) HTML TEMPLATE
     # ────────────────────────────────────────────────────────
